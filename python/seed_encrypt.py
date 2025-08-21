@@ -1,5 +1,3 @@
-
-
 #!/usr/bin/env python3
 """
 seed_encrypt.py — visible seed input, AES‑256‑GCM encryption, PBKDF2‑SHA256 KDF
@@ -49,6 +47,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("out", nargs="?", default="seed.enc", help="output encrypted blob (default: seed.enc)")
     p.add_argument("--seed", help="seed phrase provided via CLI (visible). If omitted, you will be prompted.")
     p.add_argument("--sha256", action="store_true", help="also write a .sha256 checksum next to the output")
+    p.add_argument("--password", help="encryption password (non-interactive). If omitted, will prompt securely.")
+    p.add_argument("--password-file", help="read password from file (first line)")
     return p.parse_args()
 
 
@@ -71,7 +71,22 @@ def main() -> int:
         return 1
 
     # 2) Get password (hidden)
-    password = getpass.getpass("\U0001F511 Enter encryption password: ")
+    if args.password_file:
+        try:
+            with open(args.password_file, 'r', encoding='utf-8') as pf:
+                password = pf.readline().rstrip('\n')
+        except Exception as e:
+            print(f"[!] Failed to read --password-file: {e}", file=sys.stderr)
+            return 1
+    elif args.password is not None:
+        password = args.password
+    else:
+        try:
+            password = getpass.getpass("\U0001F511 Enter encryption password: ")
+        except (EOFError, KeyboardInterrupt):
+            print("[!] No password provided and interactive prompt failed.", file=sys.stderr)
+            return 1
+
     if len(password) < 12:
         print("[!] Password must be at least 12 characters.", file=sys.stderr)
         return 1
