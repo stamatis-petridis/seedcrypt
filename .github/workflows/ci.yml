@@ -1,0 +1,15 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  python-roundtrip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install pycryptodome
+      - run: |
+          echo "abandon abandon abandon" > /tmp/seed.txt
+          python3 python/seed_encrypt.py --seed "$(cat /tmp/seed.txt)" --sha256
+          python3 python/decrypt_seed.py seed.enc --out /tmp/out.txt
+          diff -u /tmp/seed.txt /tmp/out.txt
