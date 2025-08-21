@@ -1,6 +1,6 @@
 *.enc
 *.enc.sha256
 seed.txt
+.vscode/
 .DS_Store
-node_modules/
 __pycache__/
