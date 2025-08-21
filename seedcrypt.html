@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Seed Encryptor (AES-256-GCM, PBKDF2-SHA256)</title>
+  <style>
+    :root { --w: 720px; }
+    html, body { background:#0b0f14; color:#e6edf3; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+    .wrap { max-width: var(--w); margin: 32px auto; padding: 24px; background:#0f1620; border:1px solid #1e2936; border-radius:12px; }
+    h1 { margin:0 0 8px; font-size: 1.4rem; }
+    p.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; color:#b9d1ea; font-size: .95rem; }
+    label { display:block; margin:18px 0 8px; font-weight:600; }
+    input[type="text"], input[type="password"], textarea { width:100%; box-sizing:border-box; background:#0b111a; color:#e6edf3; border:1px solid #263445; border-radius:8px; padding:10px 12px; font-size: .95rem; }
+    textarea { min-height: 96px; resize: vertical; }
+    .row { display:flex; gap:12px; align-items:center; }
+    .row > * { flex:1; }
+    .btn { appearance:none; border:1px solid #2a3a4e; background:#122032; color:#e6edf3; padding:10px 14px; border-radius:8px; font-weight:600; cursor:pointer; }
+    .btn:hover { background:#14253a; }
+    .btn:active { transform: translateY(1px); }
+    .muted { color:#99aabf; font-size:.9rem; }
+    .ok { color:#7ee787; }
+    .err { color:#ff6b6b; white-space:pre-wrap; }
+    .file { border:1px dashed #2a3a4e; padding:12px; border-radius:8px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+    .small { font-size: .85rem; color:#9fb3c8; }
+    .pill { display:inline-block; padding:2px 8px; border:1px solid #2a3a4e; border-radius:999px; font-size:.8rem; margin-left:6px; color:#b9d1ea; }
+    code { background:#0b111a; padding:2px 6px; border-radius:6px; border:1px solid #243244; }
+
+    .input-row { display:flex; gap:8px; align-items:center; }
+    .input-row > .flex { flex:1; }
+    .toggle { white-space:nowrap; font-size:.85rem; border:1px solid #2a3a4e; background:#0d1a29; padding:8px 10px; border-radius:8px; cursor:pointer; }
+
+    /* Masking for textarea or text inputs when hidden mode is on */
+    .masked { -webkit-text-security: disc; text-security: disc; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Seed Encryptor <span class="pill">AES-256-GCM</span> <span class="pill">PBKDF2-SHA256 · 200k</span></h1>
+    <p class="muted">Entirely client-side. No network, no telemetry. Format: <code>[MAGIC "SEEDv1" | salt(16) | nonce(12) | tag(16) | ciphertext]</code></p>
+
+    <div class="grid">
+      <section>
+        <h2 style="font-size:1.1rem;margin:8px 0 0">Encrypt</h2>
+
+        <label for="seed">12/24-word seed</label>
+        <div class="input-row">
+          <textarea id="seed" class="flex"
+            placeholder="example: abandon abandon abandon ..."
+            autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+          <button class="toggle" id="tglSeed" aria-pressed="false" aria-controls="seed">Show</button>
+        </div>
+
+        <label for="pass">Password</label>
+        <div class="input-row">
+          <input id="pass" class="flex" type="password" autocomplete="off" />
+          <button class="toggle" id="tglPass" aria-pressed="false" aria-controls="pass">Show</button>
+        </div>
+
+        <div class="row">
+          <input id="fname" type="text" value="seed.enc" autocomplete="off" />
+          <button class="btn" id="btnEncrypt">Encrypt → Download</button>
+        </div>
+        <p class="small">Use a long passphrase (≥ 12 chars). New random salt and nonce each time.</p>
+        <div id="encStatus" class="muted"></div>
+      </section>
+
+      <section>
+        <h2 style="font-size:1.1rem;margin:8px 0 0">Decrypt</h2>
+
+        <div class="file">
+          <input type="file" id="blobFile" accept=".enc,application/octet-stream" />
+        </div>
+
+        <label for="pass2">Password</label>
+        <div class="input-row">
+          <input id="pass2" class="flex" type="password" autocomplete="off" />
+          <button class="toggle" id="tglPass2" aria-pressed="false" aria-controls="pass2">Show</button>
+        </div>
+
+        <div class="row">
+          <button class="btn" id="btnDecrypt">Decrypt</button>
+          <button class="btn" id="btnCopy" title="Copy plaintext to clipboard">Copy</button>
+        </div>
+
+        <label for="out">Plaintext seed</label>
+        <div class="input-row">
+          <textarea id="out" class="flex"
+            placeholder="decrypted seed will appear here"
+            autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+          <button class="toggle" id="tglOut" aria-pressed="false" aria-controls="out">Show</button>
+        </div>
+        <div id="decStatus" class="muted"></div>
+      </section>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #1e2936;margin:20px 0" />
+
+    <section>
+      <h2 style="font-size:1.1rem;margin:8px 0 0">Utilities</h2>
+      <div class="row">
+        <button class="btn" id="btnHashFile">SHA-256 of .enc</button>
+        <span id="hashOut" class="p mono"></span>
+      </div>
+      <p class="small">Store the .enc in multiple locations along with this checksum. Verify after every move.</p>
+    </section>
+
+    <p class="muted">Implementation mirrors your Python format for round-trip compatibility.</p>
+    <p class="small">© You. Built offline.</p>
+  </div>
+
+<script>
+'use strict';
+
+// ===== Helpers =====
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+const MAGIC = enc.encode('SEEDv1'); // 6 bytes
+
+function bytes(len){ return new Uint8Array(len); }
+function toHex(buf){ return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+function concatBytes(...arrs){
+  const len = arrs.reduce((n,a)=>n+a.length,0);
+  const out = new Uint8Array(len);
+  let off = 0;
+  for(const a of arrs){ out.set(a, off); off += a.length; }
+  return out;
+}
+
+async function sha256(u8){
+  const h = await crypto.subtle.digest('SHA-256', u8);
+  return new Uint8Array(h);
+}
+
+async function deriveKey(password, salt){
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(password), {name:'PBKDF2'}, false, ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    { name:'PBKDF2', salt, iterations:200000, hash:'SHA-256' },
+    keyMaterial, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']
+  );
+}
+
+function dl(filename, u8){
+  const blob = new Blob([u8], {type:'application/octet-stream'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+}
+
+function setStatus(el, html, cls){ el.textContent = ''; el.className = ''; if(cls) el.classList.add(cls); el.innerHTML = html; }
+
+// ===== Show/Hide Toggles =====
+function wireToggle(btnId, fieldId, kind){
+  const btn = document.getElementById(btnId);
+  const field = document.getElementById(fieldId);
+  if(!btn || !field) return;
+  const isPassword = kind === 'password';
+  let hidden = true;
+
+  function apply(){
+    if(isPassword){
+      field.type = hidden ? 'password' : 'text';
+    } else {
+      if(hidden) field.classList.add('masked'); else field.classList.remove('masked');
+    }
+    btn.textContent = hidden ? 'Show' : 'Hide';
+    btn.setAttribute('aria-pressed', String(!hidden));
+  }
+
+  if(!isPassword){ field.classList.add('masked'); }
+  apply();
+  btn.addEventListener('click', () => { hidden = !hidden; apply(); });
+}
+
+// ===== Encrypt =====
+async function doEncrypt(){
+  const seed = document.getElementById('seed').value.trim();
+  const pass = document.getElementById('pass').value;
+  const fname = document.getElementById('fname').value || 'seed.enc';
+  const status = document.getElementById('encStatus');
+
+  if(!seed){ setStatus(status, 'Provide a seed.', 'err'); return; }
+  if(!pass || pass.length < 12){ setStatus(status, 'Password must be ≥ 12 chars.', 'err'); return; }
+
+  try {
+    const salt = crypto.getRandomValues(bytes(16));
+    const nonce = crypto.getRandomValues(bytes(12));
+    const key = await deriveKey(pass, salt);
+
+    // WebCrypto AES-GCM returns ciphertext+tag; tag is last 16 bytes
+    const ctWithTag = new Uint8Array(await crypto.subtle.encrypt(
+      { name:'AES-GCM', iv: nonce, tagLength:128 }, key, enc.encode(seed)
+    ));
+    const tag = ctWithTag.slice(ctWithTag.length - 16);
+    const ct  = ctWithTag.slice(0, ctWithTag.length - 16);
+
+    const out = concatBytes(MAGIC, salt, nonce, tag, ct);
+    const hash = await sha256(out);
+
+    dl(fname, out);
+    setStatus(status, `Saved ${fname}. SHA256 ${toHex(hash).slice(0,16)}…`, 'ok');
+  } catch(e){
+    setStatus(status, 'Encryption failed: ' + (e && e.message ? e.message : e), 'err');
+  }
+}
+
+// ===== Decrypt =====
+async function doDecrypt(){
+  const file = document.getElementById('blobFile').files[0];
+  const pass = document.getElementById('pass2').value;
+  const out  = document.getElementById('out');
+  const status = document.getElementById('decStatus');
+
+  if(!file){ setStatus(status, 'Select an encrypted file.', 'err'); return; }
+  if(!pass){ setStatus(status, 'Enter password.', 'err'); return; }
+
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    if(buf.length < MAGIC.length + 16 + 12 + 16 + 1) throw new Error('Blob too small');
+    const magic = buf.slice(0, MAGIC.length);
+    if(toHex(magic) !== toHex(MAGIC)) throw new Error('Missing SEEDv1 header');
+
+    let i = MAGIC.length;
+    const salt  = buf.slice(i, i+16); i += 16;
+    const nonce = buf.slice(i, i+12); i += 12;
+    const tag   = buf.slice(i, i+16); i += 16;
+    const ct    = buf.slice(i);
+
+    const key = await deriveKey(pass, salt);
+
+    // WebCrypto expects ciphertext+tag concatenated
+    const ctWithTag = concatBytes(ct, tag);
+    const pt = new Uint8Array(await crypto.subtle.decrypt(
+      { name:'AES-GCM', iv: nonce, tagLength:128 }, key, ctWithTag
+    ));
+
+    const text = dec.decode(pt).trim();
+    out.value = text;
+    setStatus(status, 'Decryption OK.', 'ok');
+  } catch(e){
+    setStatus(status, 'Decryption failed: ' + (e && e.message ? e.message : e), 'err');
+  }
+}
+
+// ===== Hash file =====
+async function hashFile(){
+  const file = document.getElementById('blobFile').files[0];
+  const out  = document.getElementById('hashOut');
+  if(!file){ out.textContent = 'Select a file first.'; return; }
+  const u8 = new Uint8Array(await file.arrayBuffer());
+  const h = await sha256(u8);
+  out.textContent = toHex(h);
+}
+
+// ===== Clipboard =====
+async function copyOut(){
+  const out = document.getElementById('out');
+  const t = out.value;
+  if(!t) return;
+  if(out.classList.contains('masked')) { alert('Reveal the output before copying.'); return; }
+  try { await navigator.clipboard.writeText(t); } catch {}
+}
+
+// Wire up
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('btnEncrypt').addEventListener('click', doEncrypt);
+  document.getElementById('btnDecrypt').addEventListener('click', doDecrypt);
+  document.getElementById('btnHashFile').addEventListener('click', hashFile);
+  document.getElementById('btnCopy').addEventListener('click', copyOut);
+
+  // show/hide toggles
+  wireToggle('tglSeed', 'seed', 'text');
+  wireToggle('tglPass', 'pass', 'password');
+  wireToggle('tglPass2', 'pass2', 'password');
+  wireToggle('tglOut', 'out', 'text');
+});
+</script>
+</body>
+</html>
